@@ -9,6 +9,7 @@ from rich.table import Table
 from rich import box
 from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
+import numpy_financial as npf
 
 console = Console()
 
@@ -53,7 +54,6 @@ def get_user_input():
         "loan_term_years": loan_term_years
     }
 
-
 def calculate_proforma(details):
     monthly_income = details["rental_income"]
     vacancy_loss = monthly_income * details["vacancy_rate"]
@@ -83,7 +83,7 @@ def calculate_proforma(details):
     # Calculate IRR (simplified)
     initial_investment = -total_cash_invested
     cash_flows = [cash_flow] * details["loan_term_years"]
-    irr = np.irr([initial_investment] + cash_flows) * 100
+    irr = npf.irr([initial_investment] + cash_flows) * 100
     
     return {
         "noi": noi,
@@ -185,53 +185,51 @@ def load_historical_data():
         console.print(f"Loaded historical data from {filename}", style="bold green")
         return df
     except FileNotFoundError:
-        console.print(f"{filename} not found. Please store historical data first.", style="bold red")
+        console.print("[bold red]Historical data file not found! Please store historical data first.[/bold red]")
         return None
 
-def scenario_analysis():
-    scenarios = []
-    while True:
-        console.print("[bold cyan]Enter scenario details[/bold cyan]")
-        scenario = get_user_input()
-        scenarios.append(scenario)
-        if not Confirm.ask("[bold cyan]Do you want to add another scenario?[/bold cyan]"):
-            break
-    
-    results = [calculate_proforma(scenario) for scenario in scenarios]
-    
-    for i, (scenario, result) in enumerate(zip(scenarios, results)):
-        console.print(f"\n[bold yellow]Scenario {i + 1}[/bold yellow]")
-        display_proforma(scenario, result)
+def visualize_rental_income(model, current_year, years_ahead):
+    df = load_historical_data()
+    if df is None:
+        return
 
-def main():
-    console.print(RENTAL_PROFORMA_LOGO)
-    
-    if Confirm.ask("[bold cyan]Do you want to run scenario analysis?[/bold cyan]"):
-        scenario_analysis()
-    else:
-        details = get_user_input()
-        results = calculate_proforma(details)
-        
-        display_proforma(details, results)
-        
-        if Confirm.ask("[bold cyan]Do you want to save the proforma to a CSV file?[/bold cyan]"):
-            save_proforma(details, results)
-        
-        if Confirm.ask("[bold cyan]Do you want to predict future rental income?[/bold cyan]"):
-            model = train_rental_income_model()
-            current_year = datetime.now().year
-            future_years, predictions = predict_future_rental_income(model, current_year, 5)
-            
-            for year, prediction in zip(future_years, predictions):
-                console.print(f"Predicted rental income for {year}: ${prediction:.2f}")
-            
-            # Plotting predictions
-            plt.plot(future_years, predictions, marker='o', linestyle='-', color='blue')
-            plt.title('Future Rental Income Predictions')
-            plt.xlabel('Year')
-            plt.ylabel('Monthly Rental Income')
-            plt.grid(True)
-            plt.show()
+    historical_years = df["Year"].values
+    historical_income = df["Monthly Rental Income"].values
+
+    future_years, future_income = predict_future_rental_income(model, current_year, years_ahead)
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(historical_years, historical_income, marker="o", label="Historical Income")
+    plt.plot(future_years, future_income, marker="x", linestyle="--", label="Predicted Income")
+    plt.xlabel("Year")
+    plt.ylabel("Monthly Rental Income ($)")
+    plt.title("Historical and Predicted Monthly Rental Income")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 if __name__ == "__main__":
-    main()
+    console.print(RENTAL_PROFORMA_LOGO)
+    while True:
+        action = Prompt.ask("Choose an action: [bold cyan]calculate[/bold cyan] proforma, [bold cyan]store[/bold cyan] historical data, [bold cyan]visualize[/bold cyan] rental income, or [bold cyan]exit[/bold cyan]", choices=["calculate", "store", "visualize", "exit"])
+        
+        if action == "calculate":
+            details = get_user_input()
+            results = calculate_proforma(details)
+            display_proforma(details, results)
+            if Confirm.ask("Do you want to save the proforma?"):
+                save_proforma(details, results)
+        
+        elif action == "store":
+            store_historical_data()
+        
+        elif action == "visualize":
+            model = train_rental_income_model()
+            if model:
+                current_year = int(datetime.now().strftime("%Y"))
+                years_ahead = int(Prompt.ask("Enter the number of years to predict"))
+                visualize_rental_income(model, current_year, years_ahead)
+        
+        elif action == "exit":
+            console.print("Goodbye!", style="bold cyan")
+            break
