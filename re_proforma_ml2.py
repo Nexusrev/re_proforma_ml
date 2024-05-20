@@ -48,7 +48,6 @@ def get_user_input():
         "loan_term_years": loan_term_years
     }
 
-
 def calculate_proforma(details):
     monthly_income = details["rental_income"]
     vacancy_loss = monthly_income * details["vacancy_rate"]
@@ -68,10 +67,25 @@ def calculate_proforma(details):
     annual_debt_service = monthly_mortgage_payment * 12
     cash_flow = noi - annual_debt_service
     
+    # Calculate Cap Rate
+    cap_rate = noi / details["purchase_price"]
+    
+    # Calculate Cash-on-Cash Return
+    total_cash_invested = details["purchase_price"] - details["loan_amount"]
+    cash_on_cash_return = (cash_flow / total_cash_invested) * 100
+    
+    # Calculate IRR (simplified)
+    initial_investment = -total_cash_invested
+    cash_flows = [cash_flow] * details["loan_term_years"]
+    irr = np.irr([initial_investment] + cash_flows) * 100
+    
     return {
         "noi": noi,
         "annual_debt_service": annual_debt_service,
-        "cash_flow": cash_flow
+        "cash_flow": cash_flow,
+        "cap_rate": cap_rate,
+        "cash_on_cash_return": cash_on_cash_return,
+        "irr": irr
     }
 
 def display_proforma(details, results):
@@ -91,6 +105,9 @@ def display_proforma(details, results):
     table.add_row("Net Operating Income (NOI)", f"${results['noi']:,.2f}")
     table.add_row("Annual Debt Service", f"${results['annual_debt_service']:,.2f}")
     table.add_row("Annual Cash Flow", f"${results['cash_flow']:,.2f}", style="bold green" if results["cash_flow"] > 0 else "bold red")
+    table.add_row("Cap Rate", f"{results['cap_rate'] * 100:.2f}%")
+    table.add_row("Cash-on-Cash Return", f"{results['cash_on_cash_return']:.2f}%")
+    table.add_row("Internal Rate of Return (IRR)", f"{results['irr']:.2f}%")
     
     console.print(table)
 
@@ -109,7 +126,10 @@ def save_proforma(details, results):
         "Loan Term (years)": [details["loan_term_years"]],
         "Net Operating Income (NOI)": [results["noi"]],
         "Annual Debt Service": [results["annual_debt_service"]],
-        "Annual Cash Flow": [results["cash_flow"]]
+        "Annual Cash Flow": [results["cash_flow"]],
+        "Cap Rate (%)": [results["cap_rate"] * 100],
+        "Cash-on-Cash Return (%)": [results["cash_on_cash_return"]],
+        "Internal Rate of Return (IRR) (%)": [results["irr"]]
     }
     
     df = pd.DataFrame(data)
@@ -118,14 +138,12 @@ def save_proforma(details, results):
     console.print(f"Proforma saved as {filename}", style="bold green")
 
 def train_rental_income_model():
-    # Example historical data for rental income (replace with actual data)
-    historical_data = {
-        "year": [2015, 2016, 2017, 2018, 2019, 2020, 2021],
-        "monthly_rental_income": [2000, 2100, 2200, 2300, 2400, 2500, 2600]
-    }
-    df = pd.DataFrame(historical_data)
-    X = df["year"].values.reshape(-1, 1)
-    y = df["monthly_rental_income"].values
+    df = load_historical_data()
+    if df is None:
+        return None
+
+    X = df["Year"].values.reshape(-1, 1)
+    y = df["Monthly Rental Income"].values
 
     model = LinearRegression()
     model.fit(X, y)
@@ -136,32 +154,78 @@ def predict_future_rental_income(model, current_year, years_ahead):
     predictions = model.predict(future_years)
     return future_years.flatten(), predictions
 
+def store_historical_data():
+    console.print("[bold cyan]Enter historical rental income data[/bold cyan]")
+    years = []
+    incomes = []
+    while True:
+        year = int(Prompt.ask("Year"))
+        income = float(Prompt.ask("Monthly Rental Income"))
+        years.append(year)
+        incomes.append(income)
+        if not Confirm.ask("[bold cyan]Do you want to add another record?[/bold cyan]"):
+            break
+    
+    data = {"Year": years, "Monthly Rental Income": incomes}
+    df = pd.DataFrame(data)
+    filename = "historical_rental_income.csv"
+    df.to_csv(filename, index=False)
+    console.print(f"Historical data saved as {filename}", style="bold green")
+
+def load_historical_data():
+    filename = "historical_rental_income.csv"
+    try:
+        df = pd.read_csv(filename)
+        console.print(f"Loaded historical data from {filename}", style="bold green")
+        return df
+    except FileNotFoundError:
+        console.print(f"{filename} not found. Please store historical data first.", style="bold red")
+        return None
+
+def scenario_analysis():
+    scenarios = []
+    while True:
+        console.print("[bold cyan]Enter scenario details[/bold cyan]")
+        scenario = get_user_input()
+        scenarios.append(scenario)
+        if not Confirm.ask("[bold cyan]Do you want to add another scenario?[/bold cyan]"):
+            break
+    
+    results = [calculate_proforma(scenario) for scenario in scenarios]
+    
+    for i, (scenario, result) in enumerate(zip(scenarios, results)):
+        console.print(f"\n[bold yellow]Scenario {i + 1}[/bold yellow]")
+        display_proforma(scenario, result)
+
 def main():
     console.print(RENTAL_PROFORMA_LOGO)
     
-    details = get_user_input()
-    results = calculate_proforma(details)
-    
-    display_proforma(details, results)
-    
-    if Confirm.ask("[bold cyan]Do you want to save the proforma to a CSV file?[/bold cyan]"):
-        save_proforma(details, results)
-    
-    if Confirm.ask("[bold cyan]Do you want to predict future rental income?[/bold cyan]"):
-        model = train_rental_income_model()
-        current_year = datetime.now().year
-        future_years, predictions = predict_future_rental_income(model, current_year, 5)
+    if Confirm.ask("[bold cyan]Do you want to run scenario analysis?[/bold cyan]"):
+        scenario_analysis()
+    else:
+        details = get_user_input()
+        results = calculate_proforma(details)
         
-        for year, prediction in zip(future_years, predictions):
-            console.print(f"Predicted rental income for {year}: ${prediction:.2f}")
+        display_proforma(details, results)
         
-        # Plotting predictions
-        plt.plot(future_years, predictions, marker='o', linestyle='-', color='blue')
-        plt.title('Future Rental Income Predictions')
-        plt.xlabel('Year')
-        plt.ylabel('Monthly Rental Income')
-        plt.grid(True)
-        plt.show()
+        if Confirm.ask("[bold cyan]Do you want to save the proforma to a CSV file?[/bold cyan]"):
+            save_proforma(details, results)
+        
+        if Confirm.ask("[bold cyan]Do you want to predict future rental income?[/bold cyan]"):
+            model = train_rental_income_model()
+            current_year = datetime.now().year
+            future_years, predictions = predict_future_rental_income(model, current_year, 5)
+            
+            for year, prediction in zip(future_years, predictions):
+                console.print(f"Predicted rental income for {year}: ${prediction:.2f}")
+            
+            # Plotting predictions
+            plt.plot(future_years, predictions, marker='o', linestyle='-', color='blue')
+            plt.title('Future Rental Income Predictions')
+            plt.xlabel('Year')
+            plt.ylabel('Monthly Rental Income')
+            plt.grid(True)
+            plt.show()
 
 if __name__ == "__main__":
     main()
